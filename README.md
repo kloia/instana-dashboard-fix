@@ -1,6 +1,6 @@
 # Instana Dashboard Fix
 
-A small Chrome/Edge extension that makes Instana custom-dashboard **chart** widgets render
+A small Chrome/Edge extension that makes Instana custom-dashboard widgets render
 at short time ranges (e.g. *Last hour*) when they would otherwise fail with
 *"Something went wrong... Please try again later."*
 
@@ -17,8 +17,8 @@ This extension fixes that without changing your selected time range.
 ## How it works
 
 It hooks the dashboard's WebSocket **in the page's main world, at document start**, and
-inspects outgoing `getUnifiedMetrics` frames. For any **time-series** metric whose query
-would exceed the bucket limit, it raises that metric's **`granularity`** (rollup) just
+inspects outgoing `getUnifiedMetrics` frames. For any **chart (time-series)** metric whose
+query would exceed the bucket limit, it raises that metric's **`granularity`** (rollup) just
 enough to stay under the limit. The time range you selected is untouched — only the
 resolution of the at-risk query is coarsened. So *Last hour* stays *Last hour*, and the
 chart renders.
@@ -35,24 +35,35 @@ other page — and every other WebSocket frame — the hook hits a one-line `ind
 returns immediately. So it behaves as Instana-only and adds no meaningful load anywhere
 else (no polling, no timers, no network calls).
 
-## What it fixes (and what it doesn't)
+## What it fixes
 
-| Widget type | Result |
+| Widget type | Status |
 |---|---|
-| Chart (TIME_SERIES) | ✅ Fixed — renders at short ranges |
-| Big number (SINGLE_NUMBER) | ⚠️ Not changed by default |
+| Chart (TIME_SERIES) | ✅ Fixed — on by default |
+| Big number (SINGLE_NUMBER) | 🧪 Experimental — opt-in (`fixSingleNumber`) |
 
-Big-number widgets are left alone by default. Coarsening their frame clears the error but
-the widget can render `—`, because its renderer expects Instana's native single-value
-response shape. For those, keep using a wider range, or wait for the platform-side fix. You
-can opt in with `fixSingleNumber: true` in `inject.js`.
+### Big-number widgets (experimental)
+
+Big numbers use a separate server path that returns a single aggregated value and has no
+granularity knob; at short windows that path errors. The opt-in fix makes the query succeed
+by sending a coarse granularity (which returns a short multi-bucket series) and then **trims
+the incoming response to its most recent value**, which is the shape the renderer expects.
+
+It is **forward compatible**: the trim only fires when the series has **more than one**
+value, so if Instana ever returns a single value again — or fixes the backend — the response
+passes through untouched.
+
+To enable it, set `fixSingleNumber: true` in `inject.js` and reload the extension. It is off
+by default because, unlike the chart fix, it has not been verified end-to-end as a packaged
+extension — turn it on and confirm your big-number widget shows the expected value before
+relying on it.
 
 ## Files
 
 ```
 instana-dashboard-fix-extension/
 ├── manifest.json   # MV3 manifest (storage permission, toolbar popup, content scripts)
-├── inject.js       # MAIN-world page hook: the WebSocket granularity rewriter
+├── inject.js       # MAIN-world page hook: the WebSocket rewriter
 ├── bridge.js       # ISOLATED-world bridge: mirrors the on/off toggle to the page
 ├── popup.html      # toolbar popup UI (on/off switch)
 ├── popup.js        # popup logic (reads/writes the toggle in chrome.storage)
@@ -60,42 +71,53 @@ instana-dashboard-fix-extension/
 └── README.md       # this file
 ```
 
+## Install
+
+> Chrome only installs `.crx` files that come from the Chrome Web Store, so there is no
+> "double-click to install" for a self-distributed build. Use **Load unpacked** below — it
+> works on any Chrome/Edge today, with no account and no review.
+
+### From a release (recommended)
+
+1. Go to the **Releases** page and download the latest
+   `instana-dashboard-fix-extension-<version>.zip`.
+2. **Unzip it** to a folder you'll keep (the extension loads from this folder, so don't
+   delete it afterwards).
+3. Open `chrome://extensions` (or `edge://extensions`).
+4. Turn on **Developer mode** (top-right toggle).
+5. Click **Load unpacked** and select the unzipped folder.
+6. Confirm the card shows **Instana Dashboard Fix**. Click the puzzle-piece toolbar icon and
+   **pin** it for quick access to the on/off switch.
+7. Open an Instana dashboard, set the range to **Last hour**, and confirm the chart renders.
+   (Optional) open DevTools console (F12) and look for `[Instana Dashboard Fix] installed`.
+
+### From source
+
+```bash
+git clone https://github.com/kloia/instana-dashboard-fix.git
+```
+Then follow steps 3–7 above, selecting the cloned `instana-dashboard-fix` folder directly
+(no unzip needed).
+
+### Updating
+
+After pulling new code or editing files, open `chrome://extensions` and click the **reload**
+(↻) icon on the extension card, then reload your dashboard tab.
+
+### Removing
+
+Click **Remove** on the extension card (or just use the popup toggle to disable it). The
+dashboard reverts to its original behavior on the next reload.
+
 ## Toggle (on/off)
 
-Click the extension's toolbar icon to open the popup and flip **Enabled / Disabled**. The
-state is stored in `chrome.storage.local` and applied live; reload the dashboard tab to be
-sure the change takes effect on already-open queries. When disabled, the hook is a pure
-pass-through (it does not parse or modify any frame). Default is **Enabled**.
-
-## Install (unpacked — recommended)
-
-1. Open `chrome://extensions` (or `edge://extensions`).
-2. Enable **Developer mode** (top-right toggle).
-3. Click **Load unpacked** and select this `instana-dashboard-fix-extension` folder.
-4. Confirm the card shows **Instana Dashboard Fix** and is enabled. Pin its toolbar icon if
-   you want quick access to the toggle.
-5. Open an Instana dashboard, set the range to **Last hour**, and confirm the affected chart
-   renders. Open DevTools console (F12) to see `[Instana Dashboard Fix] installed...` and
-   `coarsened getUnifiedMetrics...` log lines.
-
-To **update** after editing files: click the refresh icon on the extension card in
-`chrome://extensions`, then reload the dashboard tab.
-
-To **remove**: use **Remove** (or just toggle it off) on the extensions page.
-
-## Install from a packaged .zip
-
-Built with `make package` (see below):
-
-1. Unzip `dist/instana-dashboard-fix-extension-<version>.zip` into a folder.
-2. Follow the **Load unpacked** steps above, selecting the unzipped folder.
-
-(Chrome's *Load unpacked* needs an unpacked folder, so unzip first. The same `.zip` is the
-format the Chrome Web Store / Edge Add-ons accept for private publishing.)
+Click the toolbar icon to open the popup and flip **Enabled / Disabled**. The state is stored
+in `chrome.storage.local` and applied live; reload the dashboard tab to be sure it applies to
+already-open queries. When disabled, the hook is a pure pass-through. Default is **Enabled**.
 
 ## Build / package with Make
 
-From inside this folder:
+From inside the extension folder:
 
 ```bash
 make lint      # syntax-check the JS and validate manifest.json
@@ -104,7 +126,9 @@ make clean     # remove the dist/ folder
 make           # lint + package (default target)
 ```
 
-Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
+Requires `zip` and `python3`; `node` is optional (used for the JS syntax check). Pushing a
+`vX.Y.Z` git tag also builds and attaches the zip to a GitHub Release automatically
+(`.github/workflows/release.yml`).
 
 ## Configuration (`inject.js`)
 
@@ -113,16 +137,16 @@ Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
 - `maxBuckets` — coarsen a time-series query only when `window / granularity` exceeds this
   (default `350`; observed backend limit ≈ 360).
 - `minGranularityMs` — never request a resolution finer than this when coarsening
-  (default `60000` = 60s, a known-good value).
-- `fixSingleNumber` — also coarsen big-number widgets (default `false`).
+  (default `60000` = 60s).
+- `fixSingleNumber` — enable the experimental big-number fix (default `false`).
 - `verbose` — console logging (default `true`).
 
 ## Safety / scope
 
 - Activates by frame payload, not hostname; no host permissions are requested.
-- Only rewrites outgoing `getUnifiedMetrics` frames that would exceed the bucket limit;
-  every other frame passes through unchanged. All rewrite logic is wrapped so it can never
-  throw and break the socket.
+- Only rewrites Instana `getUnifiedMetrics` frames (and, when the big-number fix is on, trims
+  `bigNumber` responses with more than one value); every other frame passes through
+  unchanged. All rewrite logic is wrapped so it can never throw and break the socket.
 - Changes nothing server-side and saves nothing to any dashboard. It is a per-browser,
   client-side mitigation, and is the right stop-gap while the platform-side fix is pursued
   with the vendor.
