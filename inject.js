@@ -33,9 +33,9 @@
     maxBuckets: 350,
     // When coarsening, never request a resolution finer than this (ms).
     minGranularityMs: 60000,
-    // Opt-in big-number fix (request coarsening + response trim-to-one).
-    // EXPERIMENTAL: validate on your dashboard before relying on it.
-    fixSingleNumber: false,
+    // Big-number fix (request coarsening + response trim-to-one). On by
+    // default; set to false to disable it and keep only the chart fix.
+    fixSingleNumber: true,
     // Console logging.
     verbose: true,
   };

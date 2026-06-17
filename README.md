@@ -40,23 +40,21 @@ else (no polling, no timers, no network calls).
 | Widget type | Status |
 |---|---|
 | Chart (TIME_SERIES) | ✅ Fixed — on by default |
-| Big number (SINGLE_NUMBER) | 🧪 Experimental — opt-in (`fixSingleNumber`) |
+| Big number (SINGLE_NUMBER) | ✅ Fixed — on by default |
 
-### Big-number widgets (experimental)
+### Big-number widgets
 
 Big numbers use a separate server path that returns a single aggregated value and has no
-granularity knob; at short windows that path errors. The opt-in fix makes the query succeed
-by sending a coarse granularity (which returns a short multi-bucket series) and then **trims
-the incoming response to its most recent value**, which is the shape the renderer expects.
+granularity knob; at short windows that path errors. The fix makes the query succeed by
+sending a coarse granularity (which returns a short multi-bucket series) and then **trims the
+incoming response to its most recent value**, which is the shape the renderer expects.
 
 It is **forward compatible**: the trim only fires when the series has **more than one**
 value, so if Instana ever returns a single value again — or fixes the backend — the response
 passes through untouched.
 
-To enable it, set `fixSingleNumber: true` in `inject.js` and reload the extension. It is off
-by default because, unlike the chart fix, it has not been verified end-to-end as a packaged
-extension — turn it on and confirm your big-number widget shows the expected value before
-relying on it.
+To **disable** it (and keep only the chart fix), set `fixSingleNumber: false` in `inject.js`
+and reload the extension.
 
 ## Files
 
@@ -138,7 +136,7 @@ Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
   (default `350`; observed backend limit ≈ 360).
 - `minGranularityMs` — never request a resolution finer than this when coarsening
   (default `60000` = 60s).
-- `fixSingleNumber` — enable the experimental big-number fix (default `false`).
+- `fixSingleNumber` — the big-number fix (default `true`; set `false` to disable it).
 - `verbose` — console logging (default `true`).
 
 ## Safety / scope
