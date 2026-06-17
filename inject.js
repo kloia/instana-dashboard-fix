@@ -114,10 +114,16 @@
         }
       } else if (mm.resultType === "SINGLE_NUMBER" && CONFIG.fixSingleNumber) {
         // No granularity => server single-value path, which errors at short
-        // windows. Send the coarsest granularity (one window-sized bucket) so
-        // the query succeeds; the few buckets it returns get trimmed on the way
-        // back in (see trimIncoming).
-        if (mm.granularity == null) {
+        // windows. Send a window-sized granularity so the query succeeds; the
+        // few buckets it returns get trimmed on the way back in (see
+        // trimIncoming).
+        //
+        // This also makes the widget's "Use last value" (lastValue: true) work:
+        // lastValue on its own still errors at short windows (it sends no
+        // granularity), but forcing one here returns data, and trimming to the
+        // most recent value is exactly the "last value" the widget wants. So we
+        // force the granularity whether or not lastValue is set.
+        if (mm.granularity == null || mm.granularity < ws) {
           mm.granularity = ws;
           changed = true;
         }

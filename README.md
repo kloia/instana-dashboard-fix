@@ -53,8 +53,14 @@ It is **forward compatible**: the trim only fires when the series has **more tha
 value, so if Instana ever returns a single value again — or fixes the backend — the response
 passes through untouched.
 
-To **disable** it (and keep only the chart fix), set `fixSingleNumber: false` in `inject.js`
-and reload the extension.
+**"Use last value" is supported.** Enabling the widget's *Use last value* (`lastValue: true`)
+on its own still errors at short windows, because that path sends no granularity. The fix
+forces a granularity regardless of the `lastValue` setting, so the query returns data, and the
+trim keeps the **most recent** point — which is exactly what *Use last value* displays. So the
+widget renders whether *Use last value* is checked or not.
+
+To **disable** the big-number fix (and keep only the chart fix), set `fixSingleNumber: false`
+in `inject.js` and reload the extension.
 
 ## Files
 
