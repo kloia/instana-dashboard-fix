@@ -133,9 +133,14 @@ Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
 - `metricMatch` — optional substrings to scope the fix to specific metrics. Empty = every
   metric (default).
 - `maxBuckets` — coarsen a time-series query only when `window / granularity` exceeds this
-  (default `350`; observed backend limit ≈ 360).
-- `minGranularityMs` — never request a resolution finer than this when coarsening
-  (default `60000` = 60s).
+  (default `120`). The backend's WebSocket limit for the affected metrics was measured between
+  120 and 200 buckets (120 renders, 200 errors), so 120 is the finest verified-safe setting —
+  ≈30s resolution at a 1h window, about double the data of a 60s rollup. Raise it only if your
+  metric tolerates more buckets; lower it if a chart still errors.
+- `minGranularityMs` — floor on resolution when coarsening (default `10000` = 10s). 10s only
+  applies on short windows where it stays under `maxBuckets`; on typical windows the cap picks
+  a coarser value (≈30s at 1h). A literal 10s rollup at common windows exceeds the backend
+  limit and the widget would error, so it cannot be forced.
 - `fixSingleNumber` — the big-number fix (default `true`; set `false` to disable it).
 - `verbose` — console logging (default `true`).
 

@@ -30,9 +30,17 @@
     // Optional metric allow-list (substrings). Empty = every metric.
     metricMatch: [],
     // Coarsen a time-series query only when window/granularity exceeds this.
-    maxBuckets: 350,
-    // When coarsening, never request a resolution finer than this (ms).
-    minGranularityMs: 60000,
+    // The backend's WebSocket limit for the affected metrics was measured
+    // between 120 and 200 buckets (120 renders, 200 errors), so 120 is the
+    // finest verified-safe setting — at a 1h window that is 30s resolution,
+    // roughly double the data points of a 60s rollup.
+    maxBuckets: 120,
+    // Floor on resolution when coarsening (ms). 10s applies on short windows
+    // where 10s still stays under maxBuckets; on longer windows the maxBuckets
+    // cap picks a coarser value automatically (e.g. 30s at 1h). 10s cannot be
+    // used at typical windows — it exceeds the backend limit and the widget
+    // would error.
+    minGranularityMs: 10000,
     // Big-number fix (request coarsening + response trim-to-one). On by
     // default; set to false to disable it and keep only the chart fix.
     fixSingleNumber: true,
