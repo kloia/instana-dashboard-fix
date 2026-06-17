@@ -46,19 +46,17 @@ else (no polling, no timers, no network calls).
 ### Big-number widgets
 
 Big numbers use a separate server path that returns a single aggregated value and has no
-granularity knob; at short windows that path errors. The fix makes the query succeed by
-sending a coarse granularity (which returns a short multi-bucket series) and then **trims the
-incoming response to its most recent value**, which is the shape the renderer expects.
+granularity knob; at short windows that path errors. The fix is request-only: it **widens just
+that query's window to 6h** (where the native single-value path works) and drops any
+granularity, so the widget renders one value. There is no response interception.
 
-It is **forward compatible**: the trim only fires when the series has **more than one**
-value, so if Instana ever returns a single value again — or fixes the backend — the response
-passes through untouched.
+**"Use last value" is supported.** The widget renders whether *Use last value* (`lastValue:
+true`) is checked or not — verified at short windows.
 
-**"Use last value" is supported.** Enabling the widget's *Use last value* (`lastValue: true`)
-on its own still errors at short windows, because that path sends no granularity. The fix
-forces a granularity regardless of the `lastValue` setting, so the query returns data, and the
-trim keeps the **most recent** point — which is exactly what *Use last value* displays. So the
-widget renders whether *Use last value* is checked or not.
+**Trade-off:** because the big-number query uses a ~6h window, the number reflects roughly the
+last 6 hours rather than the chart's exact selected range (configurable via
+`singleNumberWindowMs`). For a slow-moving gauge this is usually fine; if you need the exact
+selected range, disable the big-number fix.
 
 To **disable** the big-number fix (and keep only the chart fix), set `fixSingleNumber: false`
 in `inject.js` and reload the extension.
@@ -137,6 +135,12 @@ Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
 
 ## Configuration (`inject.js`)
 
+- `sources` — which metric sources to touch (default `["INFRASTRUCTURE_METRICS"]`). This is
+  what keeps APPLICATION / website / mobile widgets (e.g. an app error rate or latency) working
+  natively and untouched. Empty = all sources.
+- `singleNumberWindowMs` — the window the big-number query is widened to (default `21600000`
+  = 6h). Lower it for a number closer to your selected range, but not so low that the
+  single-value path errors again.
 - `metricMatch` — optional substrings to scope the fix to specific metrics. Empty = every
   metric (default).
 - `minGranularityMs` — the absolute minimum rollup, **always enforced** (default `30000` =
@@ -152,9 +156,10 @@ Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
 ## Safety / scope
 
 - Activates by frame payload, not hostname; no host permissions are requested.
-- Only rewrites Instana `getUnifiedMetrics` frames (and, when the big-number fix is on, trims
-  `bigNumber` responses with more than one value); every other frame passes through
-  unchanged. All rewrite logic is wrapped so it can never throw and break the socket.
+- Only rewrites **outgoing** `getUnifiedMetrics` frames for the configured metric sources
+  (default infrastructure metrics only). There is no response interception; every other frame
+  and every other metric passes through unchanged. All rewrite logic is wrapped so it can never
+  throw and break the socket.
 - Changes nothing server-side and saves nothing to any dashboard. It is a per-browser,
   client-side mitigation, and is the right stop-gap while the platform-side fix is pursued
   with the vendor.
