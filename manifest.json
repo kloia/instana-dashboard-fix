@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Instana Dashboard Fix",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Coarsens the WebSocket metric granularity (rollup) for Instana custom-dashboard time-series widgets whose query would exceed the backend bucket limit, so they render at short time ranges instead of failing with a SERVER error. Activates by frame payload, not by hostname (works on any Instana deployment).",
   "permissions": ["storage"],
   "action": {

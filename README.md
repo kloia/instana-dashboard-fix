@@ -17,14 +17,15 @@ This extension fixes that without changing your selected time range.
 ## How it works
 
 It hooks the dashboard's WebSocket **in the page's main world, at document start**, and
-inspects outgoing `getUnifiedMetrics` frames. For any **chart (time-series)** metric whose
-query would exceed the bucket limit, it raises that metric's **`granularity`** (rollup) just
-enough to stay under the limit. The time range you selected is untouched — only the
-resolution of the at-risk query is coarsened. So *Last hour* stays *Last hour*, and the
-chart renders.
+inspects outgoing `getUnifiedMetrics` frames. The backend errors whenever a metric is queried
+at a rollup **finer than ~30s** (this is what breaks the widgets at short time ranges — and
+it is the rollup, not the number of buckets, that matters). So for any **chart (time-series)**
+metric the extension raises the **`granularity`** to a 30s floor when the query asks for
+something finer. The time range you selected is untouched — only the resolution is coarsened.
+So *Last hour* (or *Last 10 minutes*) keeps its range, and the chart renders.
 
-This is the lever verified in testing: coarsening `granularity` from 10s to 60s made a
-failing chart render at a 1-hour window.
+This was verified across 10m / 15m / 20m / 1h windows: requests finer than ~30s error;
+forcing ≥30s renders.
 
 ### Instana-only, without hostname filtering
 
@@ -138,15 +139,13 @@ Requires `zip` and `python3`; `node` is optional (used for the JS syntax check).
 
 - `metricMatch` — optional substrings to scope the fix to specific metrics. Empty = every
   metric (default).
-- `maxBuckets` — coarsen a time-series query only when `window / granularity` exceeds this
-  (default `120`). The backend's WebSocket limit for the affected metrics was measured between
-  120 and 200 buckets (120 renders, 200 errors), so 120 is the finest verified-safe setting —
-  ≈30s resolution at a 1h window, about double the data of a 60s rollup. Raise it only if your
-  metric tolerates more buckets; lower it if a chart still errors.
-- `minGranularityMs` — floor on resolution when coarsening (default `10000` = 10s). 10s only
-  applies on short windows where it stays under `maxBuckets`; on typical windows the cap picks
-  a coarser value (≈30s at 1h). A literal 10s rollup at common windows exceeds the backend
-  limit and the widget would error, so it cannot be forced.
+- `minGranularityMs` — the absolute minimum rollup, **always enforced** (default `30000` =
+  30s). The backend errors when the rollup is finer than ~30s for the affected metrics —
+  regardless of how many buckets that is — so this is the real fix and the finest
+  verified-safe value (it renders at 10m, 15m, 20m and 1h windows). Raise it if a chart still
+  errors; you can't go below ~30s without re-introducing the error.
+- `maxBuckets` — backstop only (default `1500`): caps the bucket count on very long windows so
+  responses don't get huge. It does not drive the fix; the rollup floor does.
 - `fixSingleNumber` — the big-number fix (default `true`; set `false` to disable it).
 - `verbose` — console logging (default `true`).
 

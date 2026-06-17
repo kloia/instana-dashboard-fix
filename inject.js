@@ -4,24 +4,21 @@
 // opened, and wraps WebSocket.prototype so it can adjust Instana
 // `getUnifiedMetrics` traffic. Two fixes:
 //
-//   1. Charts (TIME_SERIES) — DEFAULT ON. For any time-series metric whose
-//      query would exceed the backend bucket limit, raise its `granularity`
-//      (rollup) so the query stays under the limit. The chart then renders at
-//      short time ranges instead of returning the generic SERVER error.
+//   1. Charts (TIME_SERIES) — DEFAULT ON. The backend errors when the requested
+//      rollup is finer than ~30s (independent of bucket count). We enforce an
+//      absolute minimum rollup so the chart renders at short time ranges instead
+//      of returning the generic SERVER error.
 //
-//   2. Big numbers (SINGLE_NUMBER) — OPT-IN (CONFIG.fixSingleNumber). The
-//      single-value query path errors at short windows and has no granularity
-//      knob. We make it return data by sending a coarse granularity, which
-//      yields a short multi-bucket series; the renderer expects exactly one
-//      value, so we trim the INCOMING response to its most recent point. This
-//      is forward compatible: the trim only fires when the series has MORE THAN
-//      ONE value, so if Instana ever returns a single value again (or fixes the
-//      backend), the response is passed through untouched.
+//   2. Big numbers (SINGLE_NUMBER) — DEFAULT ON. The single-value path errors at
+//      short windows and has no granularity knob. We make it return data by
+//      sending a window-sized granularity (a short multi-bucket series), then
+//      trim the INCOMING response to its most recent point — the shape the
+//      renderer expects, and exactly what "Use last value" displays. Forward
+//      compatible: the trim only fires when the series has MORE THAN ONE value.
 //
-// Instana detection is by FRAME PAYLOAD, not by hostname, so it works on any
-// Instana deployment and adds no meaningful load to other pages. Enable/disable
-// is controlled from the toolbar popup (mirrored onto a documentElement
-// attribute by the companion content script). Default = enabled.
+// Instana detection is by FRAME PAYLOAD, not by hostname. Enable/disable is
+// controlled from the toolbar popup (mirrored onto a documentElement attribute
+// by the companion content script). Default = enabled.
 
 (function () {
   "use strict";
@@ -29,20 +26,14 @@
   var CONFIG = {
     // Optional metric allow-list (substrings). Empty = every metric.
     metricMatch: [],
-    // Coarsen a time-series query only when window/granularity exceeds this.
-    // The backend's WebSocket limit for the affected metrics was measured
-    // between 120 and 200 buckets (120 renders, 200 errors), so 120 is the
-    // finest verified-safe setting — at a 1h window that is 30s resolution,
-    // roughly double the data points of a 60s rollup.
-    maxBuckets: 120,
-    // Floor on resolution when coarsening (ms). 10s applies on short windows
-    // where 10s still stays under maxBuckets; on longer windows the maxBuckets
-    // cap picks a coarser value automatically (e.g. 30s at 1h). 10s cannot be
-    // used at typical windows — it exceeds the backend limit and the widget
-    // would error.
-    minGranularityMs: 10000,
-    // Big-number fix (request coarsening + response trim-to-one). On by
-    // default; set to false to disable it and keep only the chart fix.
+    // Absolute minimum rollup (ms) for time-series queries. The backend errors
+    // below ~30s for the affected metrics regardless of bucket count, so this is
+    // the finest verified-safe value. Raise if a chart still errors.
+    minGranularityMs: 30000,
+    // Backstop only: cap bucket count on very long windows so responses don't
+    // get huge. Does not drive the fix (the rollup floor does).
+    maxBuckets: 1500,
+    // Big-number fix (request coarsening + response trim-to-one).
     fixSingleNumber: true,
     // Console logging.
     verbose: true,
@@ -72,7 +63,7 @@
     return false;
   }
 
-  // ---- Outgoing: coarsen over-limit queries -------------------------------
+  // ---- Outgoing: enforce a safe rollup ------------------------------------
 
   function coarsenSend(data) {
     if (typeof data !== "string") return data;
@@ -103,26 +94,19 @@
       if (typeof ws !== "number" || ws <= 0) continue;
 
       if (mm.resultType === "TIME_SERIES") {
-        var safe = Math.max(
-          Math.ceil(ws / CONFIG.maxBuckets / 1000) * 1000,
-          CONFIG.minGranularityMs
-        );
-        var gran = (typeof mm.granularity === "number" && mm.granularity > 0) ? mm.granularity : 1;
-        if (ws / gran > CONFIG.maxBuckets && (mm.granularity == null || mm.granularity < safe)) {
-          mm.granularity = safe;
+        // Enforce the absolute minimum rollup; bucket cap is only a backstop.
+        var target = CONFIG.minGranularityMs;
+        var capByBuckets = Math.ceil(ws / CONFIG.maxBuckets / 1000) * 1000;
+        if (capByBuckets > target) target = capByBuckets;
+        if (mm.granularity == null || mm.granularity < target) {
+          mm.granularity = target;
           changed = true;
         }
       } else if (mm.resultType === "SINGLE_NUMBER" && CONFIG.fixSingleNumber) {
-        // No granularity => server single-value path, which errors at short
-        // windows. Send a window-sized granularity so the query succeeds; the
-        // few buckets it returns get trimmed on the way back in (see
-        // trimIncoming).
-        //
-        // This also makes the widget's "Use last value" (lastValue: true) work:
-        // lastValue on its own still errors at short windows (it sends no
-        // granularity), but forcing one here returns data, and trimming to the
-        // most recent value is exactly the "last value" the widget wants. So we
-        // force the granularity whether or not lastValue is set.
+        // No granularity => single-value path, which errors at short windows.
+        // Send a window-sized granularity (>= the rollup floor for any real
+        // window) so the query returns data; trimIncoming reduces it to one
+        // value. Works whether or not the widget's "Use last value" is set.
         if (mm.granularity == null || mm.granularity < ws) {
           mm.granularity = ws;
           changed = true;
@@ -185,16 +169,31 @@
     return origSend.call(this, next);
   };
 
-  // Incoming interception is only installed when the opt-in big-number fix is
-  // on, so the default (chart-only) path has zero message-path overhead.
   if (CONFIG.fixSingleNumber) {
+    // Rebuild the event so the consumer (SockJS) sees the trimmed data but every
+    // other MessageEvent field is preserved — otherwise a stripped-down event
+    // (e.g. missing origin) can be dropped and the widget shows nothing.
+    var rebuild = function (ev, fixed) {
+      try {
+        return new MessageEvent("message", {
+          data: fixed,
+          origin: ev.origin,
+          lastEventId: ev.lastEventId,
+          source: ev.source,
+          ports: ev.ports,
+        });
+      } catch (e) {
+        return null;
+      }
+    };
+
     var maybeTrim = function (ev, deliver) {
       if (!isEnabled()) return deliver(ev);
       var fixed;
       try { fixed = trimIncoming(ev.data); } catch (e) { fixed = ev.data; }
       if (fixed === ev.data) return deliver(ev);
-      try { return deliver(new MessageEvent("message", { data: fixed })); }
-      catch (e) { return deliver(ev); }
+      var rebuilt = rebuild(ev, fixed);
+      return deliver(rebuilt || ev);
     };
 
     var origAdd = proto.addEventListener;
@@ -223,7 +222,7 @@
   }
 
   if (CONFIG.verbose) {
-    console.info(LOG, "installed (charts auto; big-number fix " +
-      (CONFIG.fixSingleNumber ? "ON" : "off") + "; maxBuckets=" + CONFIG.maxBuckets + ").");
+    console.info(LOG, "installed (min rollup " + (CONFIG.minGranularityMs / 1000) +
+      "s; big-number fix " + (CONFIG.fixSingleNumber ? "on" : "off") + ").");
   }
 })();
