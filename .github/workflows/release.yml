@@ -1,0 +1,37 @@
+name: Release
+
+# Build the extension and publish a downloadable .zip to the Releases page
+# whenever a version tag (e.g. v1.0.0) is pushed.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint and package
+        run: make package
+
+      - name: Publish release with extension zip
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
+
+      - name: Upload artifact (for manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: instana-dashboard-fix-extension
+          path: dist/*.zip

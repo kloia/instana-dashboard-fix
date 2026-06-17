@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self';">
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 0; width: 260px; color: #161616; }
+    .hdr { padding: 12px 14px 8px; font-weight: 600; }
+    .row { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; }
+    .desc { padding: 0 14px 12px; color: #525252; font-size: 12px; }
+    /* switch */
+    .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; inset: 0; background: #c6c6c6; border-radius: 22px; transition: .15s; }
+    .slider::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+    input:checked + .slider { background: #0f62fe; }
+    input:checked + .slider::before { transform: translateX(18px); }
+    .state { font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div class="hdr">Instana Dashboard Fix</div>
+  <div class="row">
+    <span class="state" id="state">Enabled</span>
+    <label class="switch">
+      <input type="checkbox" id="toggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+  <div class="desc">
+    When on, over-limit Instana chart queries are coarsened so widgets render at
+    short time ranges. Affects Instana pages only; no effect elsewhere. Reload the
+    dashboard tab after toggling.
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
